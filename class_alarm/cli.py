@@ -66,14 +66,37 @@ class LiveStatus:
         self._lock = threading.Lock()
         self.ringing: str | None = None
         self.awake_check = False
+        self.phase: str | None = None  # "ringing" or "snoozed" while an alarm is active
+        self.code: str | None = None
+        self.snoozes_left = 0
+        self.snooze_until: datetime | None = None
 
     def set(self, ringing: str | None = None, awake_check: bool = False) -> None:
         with self._lock:
             self.ringing, self.awake_check = ringing, awake_check
+            if ringing is None:
+                self.phase, self.code, self.snoozes_left, self.snooze_until = None, None, 0, None
 
-    def snapshot(self) -> dict:
+    def ringer_state(self, state: dict) -> None:
         with self._lock:
-            return {"ringing": self.ringing is not None, "message": self.ringing, "awake_check": self.awake_check}
+            self.phase = state["phase"]
+            self.code = state["code"]
+            self.snoozes_left = state["snoozes_left"]
+            seconds = state["snooze_seconds"]
+            self.snooze_until = datetime.now().astimezone() + timedelta(seconds=seconds) if seconds else None
+
+    def snapshot(self, laptop: bool = False) -> dict:
+        with self._lock:
+            snap = {"ringing": self.ringing is not None, "message": self.ringing, "awake_check": self.awake_check}
+            if laptop:
+                # Only the laptop screen gets the stop code, so the phone can't turn the alarm off.
+                snap.update(
+                    phase=self.phase,
+                    code=self.code,
+                    snoozes_left=self.snoozes_left,
+                    snooze_until=fmt_clock(self.snooze_until) if self.snooze_until else None,
+                )
+            return snap
 
 
 class App:
@@ -88,6 +111,16 @@ class App:
         self._pattern: tuple[date, SleepPattern | None] | None = None
         self._local: list[Event] = []  # events from the web app, waiting for the alarm loop
         self._local_lock = threading.Lock()
+        self.reader: LineReader | None = None  # set by `run`; the laptop web app types into it
+        self.wakeup = threading.Event()  # interrupts the main loop's sleep
+        self.test_requested = False
+        self.last_laptop_view = 0.0  # when the laptop's browser last loaded the app
+        self.web_url: str | None = None
+        self.phone_links: list[str] = []
+
+    def request_test(self) -> None:
+        self.test_requested = True
+        self.wakeup.set()
 
     def add_local_event(self, kind: str) -> Event:
         event = Event(ts=time.time(), kind=kind, id=f"web-{time.time_ns()}")
@@ -164,11 +197,11 @@ def cmd_plan(app: App, days: int) -> int:
     return 0
 
 
-def _ring_alarm(cfg: Config, message: str, reader: LineReader, phone: bool = True) -> str:
+def _ring_alarm(cfg: Config, message: str, reader: LineReader, phone: bool = True, on_state=None) -> str:
     notifiers = build_notifiers(cfg.phone) if phone else []
     if phone and not notifiers:
         log.warning("no phone channel is enabled in config, only the laptop will ring")
-    return ring(message, cfg.alarm, notifiers, AlarmSound(cfg.alarm.sound_file), reader)
+    return ring(message, cfg.alarm, notifiers, AlarmSound(cfg.alarm.sound_file), reader, on_state=on_state)
 
 
 def _try_schedule_wake(when: datetime) -> bool:
@@ -181,10 +214,29 @@ def _try_schedule_wake(when: datetime) -> bool:
     return True
 
 
-def _ring_with_status(app: App, message: str, reader: LineReader) -> str:
-    app.status.set(ringing=message)
+LAPTOP_VIEW_FRESH = 20  # seconds; a laptop browser tab polls every few seconds while open
+
+
+def _show_alarm_screen(app: App) -> None:
+    """Open the laptop web app when an alarm starts, unless it's already open in a browser."""
+    web = app.cfg.web
+    if not (web.enabled and web.open_on_alarm and app.web_url):
+        return
+    if time.time() - app.last_laptop_view < LAPTOP_VIEW_FRESH:
+        return
+    import webbrowser
+
     try:
-        return _ring_alarm(app.cfg, message, reader)
+        webbrowser.open(app.web_url)
+    except Exception as exc:
+        log.warning("could not open the browser: %s", exc)
+
+
+def _ring_with_status(app: App, message: str, reader: LineReader, phone: bool = True) -> str:
+    app.status.set(ringing=message)
+    _show_alarm_screen(app)
+    try:
+        return _ring_alarm(app.cfg, message, reader, phone, on_state=app.status.ringer_state)
     finally:
         app.status.set()
 
@@ -230,9 +282,19 @@ def _start_web(app: App) -> None:
         log.error("web app could not start on port %s: %s", app.cfg.web.port, exc)
         return
     server.start()
+    app.web_url = server.local_link()
+    app.phone_links = server.links()
+    print(f"Laptop app: {app.web_url}")
     print("Phone app: open one of these on your phone (same Wi-Fi), then Share > Add to Home Screen:")
-    for link in server.links():
+    for link in app.phone_links:
         print(f"  {link}")
+    if app.cfg.web.open_on_start:
+        import webbrowser
+
+        try:
+            webbrowser.open(app.web_url)
+        except Exception as exc:
+            log.warning("could not open the browser: %s", exc)
 
 
 def cmd_web_link(app: App) -> int:
@@ -247,11 +309,18 @@ def cmd_web_link(app: App) -> int:
     return 0
 
 
+def _nap(app: App, seconds: float) -> None:
+    """Sleep, but wake early if the web app asks for something (like a test alarm)."""
+    if app.wakeup.wait(seconds):
+        app.wakeup.clear()
+
+
 def cmd_run(config_path: Path) -> int:
     app = App(config_path)
     app.events.prune(time.time())
     alarms = app.alarms(datetime.now().astimezone())
     reader = LineReader()
+    app.reader = reader
     coach = SleepCoach(app.cfg.sleep)
     fired: set[str] = set()
     announced: str | None = None
@@ -268,6 +337,11 @@ def cmd_run(config_path: Path) -> int:
         except ConfigError as exc:
             log.error("%s (still using the last good config)", exc)
         coach.cfg = app.cfg.sleep
+
+        if app.test_requested:
+            app.test_requested = False
+            outcome = _ring_with_status(app, "Test alarm from Class Alarm.", reader)
+            log.info("test alarm %s", outcome.replace("_", " "))
 
         if time.monotonic() - last_event_poll >= EVENT_POLL_SECONDS:
             last_event_poll = time.monotonic()
@@ -293,7 +367,7 @@ def cmd_run(config_path: Path) -> int:
             if announced != "none":
                 print("No upcoming classes in the next week. Waiting for timetable changes.")
                 announced = "none"
-            time.sleep(POLL_SECONDS)
+            _nap(app, POLL_SECONDS)
             continue
 
         nxt = pending[0]
@@ -319,7 +393,7 @@ def cmd_run(config_path: Path) -> int:
             _ring_until_awake(app, nxt, reader)
             continue
 
-        time.sleep(min(POLL_SECONDS, max(1.0, (nxt.wake_at - now).total_seconds())))
+        _nap(app, min(POLL_SECONDS, max(1.0, (nxt.wake_at - now).total_seconds())))
 
 
 def cmd_test(app: App, phone: bool) -> int:

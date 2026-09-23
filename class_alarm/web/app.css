@@ -56,6 +56,12 @@ body {
 
 h1 { font-size: 1.375rem; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 1.0625rem; margin: 0 0 8px; }
+h3 { font-size: 0.9375rem; margin: 16px 0 4px; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 p { margin: 0 0 8px; }
 p:last-child { margin-bottom: 0; }
 code { font-size: 0.875em; background: var(--accent-soft); padding: 1px 4px; border-radius: 4px; }
@@ -201,9 +207,78 @@ th { font-weight: 600; color: var(--muted); font-size: 0.8125rem; }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .form-msg { margin-top: 8px; font-size: 0.9375rem; min-height: 1.5em; }
+.form-msg:empty { min-height: 0; margin: 0; }
 .form-msg.bad { color: var(--error-text); }
 .form-msg.good { color: var(--ok); }
 
 .foot { color: var(--muted); font-size: 0.8125rem; padding-top: 8px; padding-bottom: 32px; }
 
 
+
+.links { list-style: none; margin: 4px 0 0; padding: 0; }
+.links li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+  padding: 8px 10px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Laptop: two columns on a wide screen */
+body.laptop .top, body.laptop main, body.laptop .foot { max-width: 1040px; }
+@media (min-width: 880px) {
+  body.laptop .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; align-items: start; }
+  body.laptop .big { font-size: 3.5rem; }
+}
+
+/* Laptop: full-screen alarm */
+.alarm-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: var(--alarm-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+.alarm-screen[hidden] { display: none; }
+.alarm-inner {
+  width: 100%;
+  max-width: 520px;
+  background: var(--surface);
+  border: 1px solid var(--alarm-border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  text-align: center;
+}
+.alarm-inner h2 { font-size: 1.5rem; line-height: 1.3; margin: 8px 0 12px; }
+.code {
+  font-size: 4.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  margin: 8px 0 16px;
+  user-select: none;
+}
+.code-entry { display: flex; gap: 8px; justify-content: center; }
+.code-entry input {
+  font: inherit;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1em;
+  text-align: center;
+  width: 8ch;
+  min-height: 52px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+}
+.code-entry .btn { min-height: 52px; font-size: 1.0625rem; }
+#as-snooze { margin-top: 12px; }

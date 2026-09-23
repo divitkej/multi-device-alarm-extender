@@ -43,6 +43,8 @@
     <button id="awake-btn" class="btn btn-primary btn-large" type="button">I'm awake</button>
   </section>
 
+  <div class="cols">
+  <div class="col">
   <section id="next" class="card" hidden>
     <p class="eyebrow">Next alarm</p>
     <p class="big" id="next-wake"></p>
@@ -60,6 +62,20 @@
     <h2>This week</h2>
     <p class="muted" id="week-rule"></p>
     <ul id="week" class="rows"></ul>
+  </section>
+
+  </div>
+  <div class="col">
+  <section class="card" id="laptop-card" hidden>
+    <h2>This laptop</h2>
+    <p class="muted">Alarms ring here and on your phone. Keep this laptop plugged in and awake overnight.</p>
+    <div class="actions">
+      <button id="test-btn" class="btn" type="button">Test alarm now</button>
+    </div>
+    <p id="test-msg" class="form-msg" role="status"></p>
+    <h3>Open on your phone</h3>
+    <p class="muted">On the same Wi-Fi, open this link on your phone, then Share &gt; Add to Home Screen.</p>
+    <ul id="phone-links" class="links"></ul>
   </section>
 
   <section class="card" id="sleep-card" hidden>
@@ -85,7 +101,25 @@
       <p id="tt-msg" class="form-msg" role="status"></p>
     </details>
   </section>
+  </div>
+  </div>
 </main>
+
+<div id="alarm-screen" class="alarm-screen" hidden role="alertdialog" aria-modal="true" aria-labelledby="as-title" aria-describedby="as-hint">
+  <div class="alarm-inner">
+    <p class="eyebrow" id="as-phase">Alarm</p>
+    <h2 id="as-title"></h2>
+    <p id="as-hint"></p>
+    <p class="code" id="as-code" aria-live="off"></p>
+    <div class="code-entry" id="as-entry">
+      <label for="as-input" class="visually-hidden">Stop code</label>
+      <input id="as-input" type="text" inputmode="numeric" autocomplete="off" maxlength="4" spellcheck="false">
+      <button id="as-stop" class="btn btn-primary" type="button">Stop alarm</button>
+    </div>
+    <p id="as-msg" class="form-msg" role="status"></p>
+    <button id="as-snooze" class="btn" type="button"></button>
+  </div>
+</div>
 
 <footer class="foot">
   <p>Served by your laptop over your Wi-Fi. Works while <code>class-alarm run</code> is running.</p>

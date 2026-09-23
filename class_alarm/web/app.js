@@ -3,7 +3,8 @@
 // The key comes from the link printed on the laptop (?key=...). It is remembered so the
 // Home Screen icon keeps working; iOS saves the full link when you add it.
 const KEY_STORE = "class-alarm-key";
-const REFRESH_MS = 15000;
+const REFRESH_MS = 15000;          // phone
+const LAPTOP_REFRESH_MS = 3000;    // laptop: the alarm screen must appear quickly
 
 function readKey() {
   const fromUrl = new URLSearchParams(location.search).get("key");
@@ -19,6 +20,9 @@ const $ = (id) => document.getElementById(id);
 
 let ttRows = [];        // timetable being edited
 let ttDirty = false;    // unsaved edits: don't overwrite them on refresh
+let isLaptop = false;
+let timer = null;
+let lastPhase = null;   // alarm screen phase, to focus the input only when it changes
 
 async function api(path, body) {
   const opts = { headers: { "X-Key": key || "" }, cache: "no-store" };
@@ -158,7 +162,53 @@ function renderTimetable(s) {
   $("tt-count").textContent = `${n} ${n === 1 ? "class" : "classes"}, tap to edit`;
 }
 
+function renderLaptop(s) {
+  show("laptop-card", s.laptop);
+  if (!s.laptop) return;
+  $("phone-links").replaceChildren(...s.phone_links.map((l) => el("li", { text: l })));
+  const testBtn = $("test-btn");
+  testBtn.disabled = !!s.status.phase;
+  if (s.status.phase) $("test-msg").textContent = "";
+}
+
+function renderAlarmScreen(s) {
+  const st = s.status;
+  const active = s.laptop && !!st.phase;
+  show("alarm-screen", active);
+  document.title = active ? "Alarm ringing - Class Alarm" : "Class Alarm";
+  if (!active) { lastPhase = null; return; }
+  const snoozed = st.phase === "snoozed";
+  $("as-phase").textContent = snoozed ? `Snoozed until ${st.snooze_until}` : "Alarm ringing";
+  $("as-title").textContent = st.message || "";
+  if (st.code) {
+    $("as-hint").textContent = snoozed ? "Type the code to cancel the alarm for this morning." : "Type this code to stop the alarm.";
+    $("as-code").textContent = st.code;
+    show("as-code", true);
+  } else {
+    $("as-hint").textContent = snoozed ? "Press Stop to cancel the alarm for this morning." : "Press Stop to turn off the alarm.";
+    show("as-code", false);
+  }
+  show("as-input", !!st.code);
+  const snooze = $("as-snooze");
+  show("as-snooze", !snoozed);
+  snooze.disabled = st.snoozes_left <= 0;
+  snooze.textContent = st.snoozes_left > 0
+    ? `Snooze ${s.snooze_minutes} min (${st.snoozes_left} left)`
+    : "No snoozes left";
+  if (lastPhase !== st.phase) {
+    lastPhase = st.phase;
+    $("as-input").value = "";
+    $("as-msg").textContent = "";
+    (st.code ? $("as-input") : $("as-stop")).focus();
+  }
+}
+
 function render(s) {
+  if (s.laptop !== isLaptop) {
+    isLaptop = s.laptop;
+    document.body.classList.toggle("laptop", isLaptop);
+    schedule();
+  }
   show("locked", false);
   const err = $("error");
   err.hidden = !s.error;
@@ -175,6 +225,8 @@ function render(s) {
   renderWeek(s);
   renderSleep(s);
   renderTimetable(s);
+  renderLaptop(s);
+  renderAlarmScreen(s);
 }
 
 // --- actions -----------------------------------------------------------------------
@@ -188,7 +240,8 @@ async function refresh() {
   try {
     render(await api("/api/state"));
     const t = new Date();
-    setConn(`Connected to your laptop, updated ${t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`, "ok");
+    const when = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    setConn(isLaptop ? `Running on this laptop, updated ${when}` : `Connected to your laptop, updated ${when}`, "ok");
   } catch (e) {
     if (e.status === 401) {
       show("locked", true);
@@ -209,6 +262,56 @@ async function setShampoo(date, on, btn) {
   } finally {
     btn.disabled = false;
   }
+}
+
+async function stopAlarm() {
+  const msg = $("as-msg");
+  const btn = $("as-stop");
+  btn.disabled = true;
+  try {
+    await api("/api/stop", { code: $("as-input").value.trim() });
+    msg.textContent = "Stopping...";
+    msg.className = "form-msg good";
+    setTimeout(refresh, 1200);
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.className = "form-msg bad";
+    $("as-input").select();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function snoozeAlarm() {
+  const msg = $("as-msg");
+  try {
+    await api("/api/snooze", {});
+    setTimeout(refresh, 1200);
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.className = "form-msg bad";
+  }
+}
+
+async function testAlarm() {
+  const msg = $("test-msg");
+  const btn = $("test-btn");
+  btn.disabled = true;
+  try {
+    await api("/api/test", {});
+    msg.textContent = "Starting a test alarm...";
+    msg.className = "form-msg good";
+    setTimeout(refresh, 1500);
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.className = "form-msg bad";
+    btn.disabled = false;
+  }
+}
+
+function schedule() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(refresh, isLaptop ? LAPTOP_REFRESH_MS : REFRESH_MS);
 }
 
 function markDirty() {
@@ -256,7 +359,11 @@ document.addEventListener("DOMContentLoaded", () => {
       setConn(`Couldn't confirm: ${e.message}`, "bad");
     }
   };
+  $("as-stop").onclick = stopAlarm;
+  $("as-input").addEventListener("keydown", (e) => { if (e.key === "Enter") stopAlarm(); });
+  $("as-snooze").onclick = snoozeAlarm;
+  $("test-btn").onclick = testAlarm;
   refresh();
-  setInterval(refresh, REFRESH_MS);
+  schedule();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 });

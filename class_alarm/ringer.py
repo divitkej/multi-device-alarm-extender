@@ -45,6 +45,10 @@ class LineReader:
             except queue.Empty:
                 return
 
+    def push(self, line: str) -> None:
+        """Input from somewhere other than the keyboard (the laptop web app)."""
+        self._queue.put(line)
+
     def get(self, timeout: float) -> str | None:
         try:
             return self._queue.get(timeout=timeout)
@@ -61,10 +65,15 @@ def ring(
     clock: Callable[[], float] = time.monotonic,
     out: Callable[[str], None] = print,
     poll_seconds: float = 1.0,
+    on_state: Callable[[dict], None] | None = None,
 ) -> str:
-    """Returns 'dismissed' or 'timed_out'. Always leaves sound and phone alerts stopped."""
+    """Returns 'dismissed' or 'timed_out'. Always leaves sound and phone alerts stopped.
+
+    `on_state` hears {"phase": "ringing" | "snoozed", "code", "snoozes_left", "snooze_seconds"}
+    so the laptop web app can show the alarm screen.
+    """
     try:
-        return _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds)
+        return _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds, on_state or (lambda state: None))
     except BaseException:  # Ctrl+C mid-alarm must not leave the phone repeating
         sound.stop()
         for n in notifiers:
@@ -72,7 +81,7 @@ def ring(
         raise
 
 
-def _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds) -> str:
+def _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds, on_state) -> str:
     code = f"{random.randint(0, 9999):04d}" if cfg.dismiss_code else None
     deadline = clock() + cfg.ring_limit_minutes * 60
     snoozes_left = cfg.max_snoozes
@@ -88,7 +97,7 @@ def _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds) -> s
             n.stop()
 
     if reader.closed.is_set():
-        out("Warning: no keyboard input available, the alarm will stop only at the ring limit.")
+        out("No keyboard input in this window. Stop the alarm from the laptop app if it's on; otherwise it stops at the ring limit.")
 
     while True:
         out("")
@@ -97,6 +106,7 @@ def _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds) -> s
         snooze_hint = f", or type s to snooze {cfg.snooze_minutes} min ({snoozes_left} left)" if snoozes_left else ""
         out(f"To stop: {stop_hint}{snooze_hint}.")
 
+        on_state({"phase": "ringing", "code": code, "snoozes_left": snoozes_left, "snooze_seconds": 0})
         sound.start()
         for n in notifiers:
             n.start(message, clock())
@@ -130,6 +140,7 @@ def _ring(message, cfg, notifiers, sound, reader, clock, out, poll_seconds) -> s
         deadline += snooze_seconds
         wake_again = clock() + snooze_seconds
         out(f"Snoozed for {cfg.snooze_minutes} min. ({stop_hint} to cancel the alarm entirely)")
+        on_state({"phase": "snoozed", "code": code, "snoozes_left": snoozes_left, "snooze_seconds": snooze_seconds})
         while clock() < wake_again:
             line = reader.get(poll_seconds)
             if line is not None and line.strip().lower() != "s" and is_dismiss(line):

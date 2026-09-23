@@ -115,6 +115,8 @@ class WebConfig:
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = 8765
+    open_on_start: bool = True
+    open_on_alarm: bool = True
 
 
 @dataclass
@@ -350,6 +352,8 @@ def load_config(path: Path) -> Config:
         enabled=_bool(wb, "enabled", False, "web"),
         host=_str(wb, "host", "0.0.0.0", "web") or "0.0.0.0",
         port=_int(wb, "port", 8765, 1, "web"),
+        open_on_start=_bool(wb, "open_on_start", True, "web"),
+        open_on_alarm=_bool(wb, "open_on_alarm", True, "web"),
     )
     if web.port > 65535:
         raise ConfigError(f"web.port: expected 1 to 65535, got {web.port}")

@@ -147,14 +147,17 @@ def _alarm_json(a, now: datetime) -> dict:
     }
 
 
-def build_state(app: App) -> dict:
+def build_state(app: App, laptop: bool = False) -> dict:
     now = datetime.now().astimezone()
     cfg = app.cfg
     state: dict = {
         "now": now.isoformat(),
-        "status": app.status.snapshot(),
+        "laptop": laptop,
+        "phone_links": app.phone_links if laptop else [],
+        "status": app.status.snapshot(laptop=laptop),
         "lead": cfg.timetable.lead_minutes,
         "shampoo_lead": cfg.shampoo.lead_minutes,
+        "snooze_minutes": cfg.alarm.snooze_minutes,
         "error": None,
         "alarms": [],
         "next": None,
@@ -288,6 +291,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return hmac.compare_digest(self.headers.get("X-Key", ""), self.key)
 
+    def _from_laptop(self) -> bool:
+        """True only for requests from this machine. A phone on the Wi-Fi can't fake this."""
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
     STATIC = {
         "/": ("index.html", "text/html; charset=utf-8"),
         "/app.css": ("app.css", "text/css; charset=utf-8"),
@@ -308,8 +315,11 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/state":
             if not self._authorized():
                 return self._json(401, {"error": "unauthorized"})
+            laptop = self._from_laptop()
+            if laptop:
+                self.app.last_laptop_view = time.time()
             try:
-                self._json(200, build_state(self.app))
+                self._json(200, build_state(self.app, laptop))
             except Exception:
                 log.exception("web: building state failed")
                 self._json(500, {"error": "Something went wrong on the laptop. Check its terminal."})
@@ -341,6 +351,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             if path == "/api/timetable":
                 return self._timetable(body)
+            if path in ("/api/stop", "/api/snooze", "/api/test"):
+                if not self._from_laptop():
+                    return self._json(403, {"error": "Only the laptop can do this. Get out of bed."})
+                return self._laptop_action(path, body)
         except Exception:
             log.exception("web: request failed")
             return self._json(500, {"error": "Something went wrong on the laptop. Check its terminal."})
@@ -357,6 +371,32 @@ class _Handler(BaseHTTPRequestHandler):
         self.app.store.update(lambda s: s.set_shampoo(day, on))
         log.info("web: %s set for %s", "shampoo day" if on else "no shampoo", day)
         self._json(200, {"ok": True})
+
+    def _laptop_action(self, path: str, body: dict) -> None:
+        status = self.app.status
+        reader = self.app.reader
+        if path == "/api/test":
+            if status.phase:
+                return self._json(409, {"error": "An alarm is already ringing."})
+            self.app.request_test()
+            log.info("web: test alarm requested from the laptop")
+            return self._json(200, {"ok": True})
+        if not status.phase or reader is None:
+            return self._json(409, {"error": "No alarm is ringing."})
+        if path == "/api/snooze":
+            if status.phase != "ringing":
+                return self._json(409, {"error": "Already snoozed."})
+            if status.snoozes_left <= 0:
+                return self._json(400, {"error": "No snoozes left."})
+            reader.push("s")
+            return self._json(200, {"ok": True})
+        # stop
+        code = status.code
+        typed = str(body.get("code", "")).strip()
+        if code and not hmac.compare_digest(typed, code):
+            return self._json(400, {"error": "Wrong code. Type the 4 digits shown."})
+        reader.push(code or "")
+        return self._json(200, {"ok": True})
 
     def _timetable(self, body: dict) -> None:
         path = self.app.cfg.timetable.path
@@ -390,3 +430,6 @@ class WebServer:
 
     def links(self) -> list[str]:
         return links(self.key, self.port)
+
+    def local_link(self) -> str:
+        return f"http://localhost:{self.port}/?key={quote(self.key)}"
