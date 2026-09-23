@@ -19,3 +19,6 @@ class-alarm = "class_alarm.cli:main"
 
 [tool.setuptools]
 packages = ["class_alarm"]
+
+[tool.setuptools.package-data]
+class_alarm = ["web/*"]

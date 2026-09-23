@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -59,6 +60,7 @@ def _atomic_write(path: Path, text: str) -> None:
 class StateStore:
     def __init__(self, data_dir: Path):
         self.path = data_dir / "state.json"
+        self._lock = threading.Lock()  # the web app and the alarm loop share one store
 
     def load(self) -> State:
         try:
@@ -82,10 +84,11 @@ class StateStore:
 
     def update(self, change) -> State:
         """Load, apply `change(state)`, save. Keeps concurrent writers from losing each other's edits."""
-        state = self.load()
-        change(state)
-        self.save(state)
-        return state
+        with self._lock:
+            state = self.load()
+            change(state)
+            self.save(state)
+            return state
 
 
 @dataclass(frozen=True)
@@ -98,12 +101,13 @@ class Event:
 class EventLog:
     def __init__(self, data_dir: Path):
         self.path = data_dir / "events.jsonl"
+        self._lock = threading.Lock()
 
     def append(self, events: list[Event]) -> None:
         if not events:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as f:
+        with self._lock, self.path.open("a", encoding="utf-8") as f:
             for e in events:
                 f.write(json.dumps({"ts": e.ts, "kind": e.kind, "id": e.id}) + "\n")
 

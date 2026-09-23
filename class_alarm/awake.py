@@ -24,6 +24,7 @@ def confirm_awake(
     wall: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
     out: Callable[[str], None] = print,
+    on_check_sent: Callable[[], None] | None = None,
 ) -> bool:
     """Waits check_after_minutes, then asks the phone "are you awake?".
 
@@ -42,6 +43,8 @@ def confirm_awake(
         window,
     )
     out(f"Sent 'are you awake?' to your phone. Waiting {cfg.confirm_window_minutes} min for an answer.")
+    if on_check_sent:
+        on_check_sent()
     try:
         while wall() < sent_at + window:
             signal = awake_signal_since(poll_events(), sent_at - CLOCK_SKEW_SECONDS)

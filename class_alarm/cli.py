@@ -1,9 +1,10 @@
-"""Command line: plan, run, test, test-phone, wake-next, shampoo, events, sleep-report."""
+"""Command line: plan, run, test, test-phone, wake-next, shampoo, events, sleep-report, web-link."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import threading
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -58,6 +59,23 @@ def _describe(alarm: Alarm) -> str:
     return f"{alarm.wake_at:%a %d %b  %H:%M}  wake  ->  {c.start:%H:%M}  {c.name}{where}{shampoo}"
 
 
+class LiveStatus:
+    """What the alarm loop is doing right now, for the web app. Shared across threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.ringing: str | None = None
+        self.awake_check = False
+
+    def set(self, ringing: str | None = None, awake_check: bool = False) -> None:
+        with self._lock:
+            self.ringing, self.awake_check = ringing, awake_check
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"ringing": self.ringing is not None, "message": self.ringing, "awake_check": self.awake_check}
+
+
 class App:
     """Everything the commands share: config, saved state, phone event feed."""
 
@@ -66,7 +84,17 @@ class App:
         self.cfg: Config = load_config(config_path)
         self.store = StateStore(self.cfg.data_dir)
         self.events = EventLog(self.cfg.data_dir)
+        self.status = LiveStatus()
         self._pattern: tuple[date, SleepPattern | None] | None = None
+        self._local: list[Event] = []  # events from the web app, waiting for the alarm loop
+        self._local_lock = threading.Lock()
+
+    def add_local_event(self, kind: str) -> Event:
+        event = Event(ts=time.time(), kind=kind, id=f"web-{time.time_ns()}")
+        self.events.append([event])
+        with self._local_lock:
+            self._local.append(event)
+        return event
 
     def reload(self) -> None:
         self.cfg = load_config(self.config_path)
@@ -79,13 +107,15 @@ class App:
         return Messenger(self.cfg.phone, self.cfg.behavior)
 
     def poll_events(self) -> list[Event]:
-        if not self.cfg.behavior.enabled:
-            return []
-        new = EventFeed(self.cfg.behavior, self.store, self.events).poll()
-        for event in new:
-            if event.kind in COMMANDS:
-                self._handle_command(event)
-        return new
+        new: list[Event] = []
+        if self.cfg.behavior.enabled:
+            new = EventFeed(self.cfg.behavior, self.store, self.events).poll()
+            for event in new:
+                if event.kind in COMMANDS:
+                    self._handle_command(event)
+        with self._local_lock:
+            new, self._local = new + self._local, []
+        return sorted(new, key=lambda e: e.ts)
 
     def _handle_command(self, event: Event) -> None:
         """'shampoo' / 'no_shampoo' from the phone apply to the next morning with class."""
@@ -151,20 +181,35 @@ def _try_schedule_wake(when: datetime) -> bool:
     return True
 
 
+def _ring_with_status(app: App, message: str, reader: LineReader) -> str:
+    app.status.set(ringing=message)
+    try:
+        return _ring_alarm(app.cfg, message, reader)
+    finally:
+        app.status.set()
+
+
 def _ring_until_awake(app: App, alarm: Alarm, reader: LineReader) -> None:
-    outcome = _ring_alarm(app.cfg, alarm.message(), reader)
+    outcome = _ring_with_status(app, alarm.message(), reader)
     log.info("alarm for %s %s", alarm.first_class.name, outcome.replace("_", " "))
     check = app.cfg.awake_check
     if outcome != "dismissed" or not check.enabled:
         return
     for _ in range(check.max_rerings):
-        if confirm_awake(check, app.messenger(), app.poll_events):
+        try:
+            awake = confirm_awake(
+                check, app.messenger(), app.poll_events,
+                on_check_sent=lambda: app.status.set(awake_check=True),
+            )
+        finally:
+            app.status.set()
+        if awake:
             print("Confirmed awake. Have a good day.")
             return
         if datetime.now().astimezone() >= alarm.first_class.start:
             return
         print("No answer from your phone. Ringing again.")
-        outcome = _ring_alarm(app.cfg, "You did not confirm you're awake. " + alarm.message(), reader)
+        outcome = _ring_with_status(app, "You did not confirm you're awake. " + alarm.message(), reader)
         if outcome != "dismissed":
             return
 
@@ -174,6 +219,32 @@ def _sleep_messages(app: App, coach: SleepCoach, now: datetime, nxt: Alarm) -> N
     for text in coach.due(now, nxt.wake_at, nxt.key, recent, app.pattern(now.date())):
         log.info("sleep reminder: %s", text)
         app.messenger().info("Bedtime", text)
+
+
+def _start_web(app: App) -> None:
+    from class_alarm.web import WebServer
+
+    try:
+        server = WebServer(app)
+    except OSError as exc:
+        log.error("web app could not start on port %s: %s", app.cfg.web.port, exc)
+        return
+    server.start()
+    print("Phone app: open one of these on your phone (same Wi-Fi), then Share > Add to Home Screen:")
+    for link in server.links():
+        print(f"  {link}")
+
+
+def cmd_web_link(app: App) -> int:
+    from class_alarm.web import links, load_or_create_key
+
+    if not app.cfg.web.enabled:
+        print("The phone app is off. Set [web] enabled = true in config.toml, then start class-alarm run.")
+        return 1
+    print("Open one of these on your phone (same Wi-Fi) while class-alarm run is running:")
+    for link in links(load_or_create_key(app.cfg.data_dir), app.cfg.web.port):
+        print(f"  {link}")
+    return 0
 
 
 def cmd_run(config_path: Path) -> int:
@@ -188,6 +259,8 @@ def cmd_run(config_path: Path) -> int:
     last_event_poll = 0.0
     native_published: tuple[str, datetime] | None = None
     print("Class Alarm is running. Keep this window open and the laptop plugged in. Ctrl+C to quit.")
+    if app.cfg.web.enabled:
+        _start_web(app)
 
     while True:
         try:
@@ -380,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sh.add_argument("--off", action="store_true", help="not a shampoo day, even if it's a weekly one")
     sub.add_parser("events", help="show phone behavior events received recently")
     sub.add_parser("sleep-report", help="show your sleep pattern and tonight's bedtime")
+    sub.add_parser("web-link", help="print the private link for the phone app")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -402,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_events(app)
         if args.command == "sleep-report":
             return cmd_sleep_report(app)
+        if args.command == "web-link":
+            return cmd_web_link(app)
     except (ConfigError, TimetableError) as exc:
         print(f"Error: {exc}")
         return 2

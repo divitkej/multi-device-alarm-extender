@@ -111,6 +111,13 @@ class AwakeCheckConfig:
 
 
 @dataclass
+class WebConfig:
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8765
+
+
+@dataclass
 class Config:
     timetable: TimetableConfig
     alarm: AlarmConfig
@@ -120,6 +127,7 @@ class Config:
     sleep: SleepConfig = field(default_factory=SleepConfig)
     awake_check: AwakeCheckConfig = field(default_factory=AwakeCheckConfig)
     data_dir: Path = Path("data")
+    web: WebConfig = field(default_factory=WebConfig)
 
 
 def _date(value: object, where: str) -> date:
@@ -337,10 +345,21 @@ def load_config(path: Path) -> Config:
     can_message = ntfy.enabled or pushover.enabled
     if sleep.enabled and not can_message:
         raise ConfigError("sleep reminders need phone.ntfy or phone.pushover enabled")
-    if awake_check.enabled and not (pushover.enabled or (ntfy.enabled and behavior.enabled)):
+    wb = raw.get("web", {})
+    web = WebConfig(
+        enabled=_bool(wb, "enabled", False, "web"),
+        host=_str(wb, "host", "0.0.0.0", "web") or "0.0.0.0",
+        port=_int(wb, "port", 8765, 1, "web"),
+    )
+    if web.port > 65535:
+        raise ConfigError(f"web.port: expected 1 to 65535, got {web.port}")
+
+    if awake_check.enabled and not (
+        pushover.enabled or (ntfy.enabled and behavior.enabled) or (web.enabled and can_message)
+    ):
         raise ConfigError(
-            "awake_check needs a way for you to answer: enable phone.pushover, "
-            "or enable both phone.ntfy and behavior"
+            "awake_check needs a way to reach you and a way for you to answer: enable "
+            "phone.pushover, or phone.ntfy with behavior or web"
         )
 
     st = raw.get("storage", {})
@@ -357,4 +376,5 @@ def load_config(path: Path) -> Config:
         sleep=sleep,
         awake_check=awake_check,
         data_dir=data_dir,
+        web=web,
     )

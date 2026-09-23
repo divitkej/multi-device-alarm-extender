@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Class Alarm</title>
+<meta name="description" content="Your class alarms, shampoo days and bedtime, from your laptop.">
+<meta name="theme-color" content="#f6f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171c21" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Class Alarm">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>Class Alarm</h1>
+  <p id="conn" class="conn" role="status">Connecting to your laptop</p>
+</header>
+
+<main>
+  <section id="locked" class="card" hidden>
+    <h2>Open the link from your laptop</h2>
+    <p>This page needs the private link that <code>class-alarm run</code> prints on the laptop. Open that link on this phone once, then add it to your Home Screen.</p>
+  </section>
+
+  <section id="error" class="card notice notice-error" hidden role="alert"></section>
+
+  <section id="ringing" class="card notice notice-alarm" hidden role="alert">
+    <h2>Alarm ringing</h2>
+    <p id="ringing-msg"></p>
+    <p>Type the code shown on the laptop to stop it.</p>
+  </section>
+
+  <section id="awake" class="card notice notice-alarm" hidden role="alert">
+    <h2>Are you awake?</h2>
+    <p>Confirm now or the laptop and phone ring again.</p>
+    <button id="awake-btn" class="btn btn-primary btn-large" type="button">I'm awake</button>
+  </section>
+
+  <section id="next" class="card" hidden>
+    <p class="eyebrow">Next alarm</p>
+    <p class="big" id="next-wake"></p>
+    <p id="next-when" class="muted"></p>
+    <p id="next-class"></p>
+    <button id="next-shampoo" class="btn" type="button" aria-pressed="false"></button>
+  </section>
+
+  <section id="none" class="card" hidden>
+    <p class="eyebrow">Next alarm</p>
+    <p>No classes in the next 7 days, so no alarms.</p>
+  </section>
+
+  <section class="card" id="week-card" hidden>
+    <h2>This week</h2>
+    <p class="muted" id="week-rule"></p>
+    <ul id="week" class="rows"></ul>
+  </section>
+
+  <section class="card" id="sleep-card" hidden>
+    <h2>Sleep</h2>
+    <p id="sleep-bed"></p>
+    <p id="sleep-usual" class="muted"></p>
+    <table id="sleep-nights" hidden>
+      <caption class="muted">Phone down to first use, last 7 nights</caption>
+      <thead><tr><th scope="col">Night</th><th scope="col">Down</th><th scope="col">Up</th><th scope="col">Time</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="card" id="tt-card" hidden>
+    <details id="tt-details">
+      <summary><h2>Timetable</h2><span class="muted" id="tt-count"></span></summary>
+      <p class="muted" id="tt-help">Days like Mon/Wed/Fri. Times like 07:30 or 7:30 AM. Changes apply within 15 seconds.</p>
+      <div id="tt-rows"></div>
+      <div class="actions">
+        <button id="tt-add" class="btn" type="button">Add class</button>
+        <button id="tt-save" class="btn btn-primary" type="button" disabled>Save timetable</button>
+      </div>
+      <p id="tt-msg" class="form-msg" role="status"></p>
+    </details>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>Served by your laptop over your Wi-Fi. Works while <code>class-alarm run</code> is running.</p>
+</footer>
+</body>
+</html>

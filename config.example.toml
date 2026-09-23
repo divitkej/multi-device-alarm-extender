@@ -103,6 +103,14 @@ confirm_window_minutes = 5
 # How many times it can ring again before giving up.
 max_rerings = 2
 
+# Phone app: the laptop serves a small web app you open on your phone over the same Wi-Fi and add
+# to your Home Screen. Next alarm, shampoo days, "I'm awake", sleep, timetable editor.
+# `class-alarm run` prints the private link. Only use it on a Wi-Fi you trust.
+[web]
+enabled = false
+host = "0.0.0.0"
+port = 8765
+
 [storage]
 # Where learned data (phone events, shampoo days) is kept, relative to this file.
 dir = "data"

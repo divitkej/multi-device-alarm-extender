@@ -155,6 +155,36 @@ When the alarm rings:
 - Type `s` and press Enter to snooze (`snooze_minutes`, up to `max_snoozes` times)
 - It stops by itself after `ring_limit_minutes`
 
+## Phone app
+
+The laptop serves a small app you open on your phone and keep on your Home Screen. It works on iPhone and Android, needs no App Store and no Mac.
+
+What it shows and does:
+
+- Next alarm, with a **Shampoo day** checkbox
+- This week's alarms, each with its own shampoo checkbox
+- An alert while the laptop is ringing
+- A big **I'm awake** button during the back-to-sleep check
+- Tonight's bedtime, your usual phone-down time and the last 7 nights
+- A timetable editor (for `.csv` timetables). It checks your entries before saving and keeps the previous file as `timetable.csv.bak`
+
+Setup:
+
+1. In `config.toml` set `[web] enabled = true`.
+2. Run `class-alarm run`. It prints a private link like `http://192.168.1.20:8765/?key=...`.
+3. Open that link on your phone while it's on the **same Wi-Fi** as the laptop.
+4. iPhone: Share > **Add to Home Screen**. Android: menu > **Add to Home screen**.
+5. Lost the link? `class-alarm web-link` prints it again.
+
+Good to know:
+
+- It only works while `class-alarm run` is running and your phone is on the same Wi-Fi. Away from home it shows "Can't reach your laptop".
+- The first time, Windows asks whether to allow Python through the firewall. Allow it on **private** networks.
+- If your router gives the laptop a new address, the Home Screen icon stops working. Either use the `.local` link that is also printed, or reserve the laptop's address in your router settings.
+- The link contains a secret key. Anyone with the link on your Wi-Fi can use the app, so don't share it. To change the key, delete `data/web_key` and restart.
+- The connection is plain HTTP inside your Wi-Fi. Use it on your home Wi-Fi, not on public or campus Wi-Fi.
+- The back-to-sleep check can use the app's **I'm awake** button, so `[awake_check]` works with just ntfy + `[web]`, without setting up behavior tracking.
+
 ## Phone behavior setup (bedtime reminders and back-to-sleep check)
 
 Your phone tells the laptop what it's doing by sending one word to a **second** private ntfy topic (`[behavior] events_topic`). The laptop reads that topic every 30 seconds. You don't need to subscribe to it in the ntfy app, and no ntfy app is needed for this part.
