@@ -1,0 +1,57 @@
+# Copy this file to config.toml and edit it. config.toml is git-ignored because it holds your keys.
+
+[timetable]
+# Your timetable: a weekly .csv (see timetable.example.csv) or a .ics calendar export.
+path = "timetable.csv"
+# Wake up this many minutes before your first class of the day (7:30 class -> 6:45 alarm).
+lead_minutes = 45
+# Optional: no alarms outside the semester.
+# term_start = 2026-08-24
+# term_end = 2026-12-11
+# Optional: holidays and days off.
+skip_dates = []
+# Optional: classes whose name contains any of these words never trigger an alarm.
+ignore_keywords = ["office hours"]
+
+[alarm]
+snooze_minutes = 5
+max_snoozes = 2
+# Stop ringing after this many minutes (snoozes add to it).
+ring_limit_minutes = 30
+# true: you must type a random 4 digit code shown on screen to stop the alarm (harder to do half asleep).
+dismiss_code = true
+# Optional custom sound. WAV works on every OS. Leave empty for the built-in beep.
+sound_file = ""
+# true: ask the OS to wake the laptop from sleep 2 minutes before each alarm. See README "Waking from sleep".
+os_wake = false
+
+[phone]
+# How often ntfy re-alerts your phone while the alarm is ringing.
+repeat_seconds = 60
+
+# Free. Install the ntfy app, subscribe to the same topic. Best on Android.
+[phone.ntfy]
+enabled = true
+server = "https://ntfy.sh"
+# Anyone who knows the topic can read it, so make it long and random.
+topic = "replace-with-a-long-random-topic-name"
+# Only needed for a self-hosted or protected server.
+token = ""
+
+# One time purchase app. Emergency alerts repeat until acknowledged and can bypass silent mode.
+# Best choice for iPhone.
+[phone.pushover]
+enabled = false
+app_token = ""
+user_key = ""
+sound = "persistent"
+retry_seconds = 30
+
+# Real phone call that reads your wake-up message. Costs a few cents per call.
+[phone.twilio]
+enabled = false
+account_sid = ""
+auth_token = ""
+from_number = "+15550001111"
+to_number = "+15552223333"
+call_every_minutes = 3

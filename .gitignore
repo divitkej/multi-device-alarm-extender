@@ -1,0 +1,9 @@
+config.toml
+timetable.csv
+*.ics
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
