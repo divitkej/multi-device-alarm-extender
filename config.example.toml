@@ -13,6 +13,13 @@ skip_dates = []
 # Optional: classes whose name contains any of these words never trigger an alarm.
 ignore_keywords = ["office hours"]
 
+[shampoo]
+# Shampoo days get an earlier alarm (7:30 class -> 6:15 with 75 minutes).
+# Weekly shampoo days, e.g. ["Mon", "Thu"]. One-off days: `class-alarm shampoo tomorrow`
+# or the "Shampoo" shortcut on your phone.
+days = []
+lead_minutes = 75
+
 [alarm]
 snooze_minutes = 5
 max_snoozes = 2
@@ -55,3 +62,38 @@ auth_token = ""
 from_number = "+15550001111"
 to_number = "+15552223333"
 call_every_minutes = 3
+
+# Phone behavior tracking. Your phone reports what it's doing (app opened, charger plugged in,
+# Sleep Focus on) to a second private ntfy topic using iOS Shortcuts automations. Used to learn
+# when you usually fall asleep and to tell if you went back to sleep after the alarm.
+# See README "Phone behavior setup". You do NOT subscribe to this topic in the ntfy app.
+[behavior]
+enabled = false
+server = "https://ntfy.sh"
+events_topic = "replace-with-a-different-long-random-topic"
+token = ""
+
+# Bedtime reminders on your phone, based on tomorrow's alarm and your learned sleep pattern.
+[sleep]
+enabled = false
+sleep_hours = 7.5
+# Time you usually need to fall asleep once in bed.
+fall_asleep_minutes = 15
+# "Start winding down" reminder this many minutes before bedtime.
+wind_down_minutes = 30
+# After bedtime, if your phone is still being used, remind you again every this many minutes.
+nag_minutes = 30
+max_nags = 4
+
+# After you turn the alarm off: ask your phone "are you awake?". If you don't answer, and the phone
+# shows no activity, the laptop and phone ring again.
+[awake_check]
+enabled = false
+check_after_minutes = 5
+confirm_window_minutes = 5
+# How many times it can ring again before giving up.
+max_rerings = 2
+
+[storage]
+# Where learned data (phone events, shampoo days) is kept, relative to this file.
+dir = "data"

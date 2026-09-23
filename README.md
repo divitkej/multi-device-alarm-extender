@@ -3,8 +3,14 @@
 Reads your college timetable, works out when to wake you (45 minutes before your first class of the day by default), and rings your laptop and your phone at the same time.
 
 - 7:30 class: alarm at 6:45
+- 7:30 class on a shampoo day: alarm at 6:15 (75 minutes)
 - 9:00 class: alarm at 8:15
 - No class that day: no alarm
+
+Optional extras that use your phone's behavior:
+
+- **Bedtime reminders:** tells you when to go to sleep for tomorrow's alarm, warns you if your usual phone-down time would leave you short, and nudges you if you're still on your phone after bedtime.
+- **Back-to-sleep check:** after you turn the alarm off, your phone asks "are you awake?". No tap and no phone activity means the laptop and phone ring again.
 
 ## How it works
 
@@ -61,6 +67,18 @@ Check the result:
 class-alarm plan
 ```
 
+### Shampoo days
+
+Shampoo days use `[shampoo] lead_minutes` (75 by default) instead of 45.
+
+- **Every week:** `days = ["Mon", "Thu"]` in `[shampoo]`
+- **One-off from the laptop:**
+  - `class-alarm shampoo` (next morning with class)
+  - `class-alarm shampoo tomorrow`
+  - `class-alarm shampoo 2026-09-24`
+  - `class-alarm shampoo --off` (skip a weekly shampoo day)
+- **One-off from your phone:** a "Shampoo" shortcut (see Phone behavior setup below). Your phone gets a confirmation with the new alarm time.
+
 ### 2. Your phone
 
 Pick at least one. You can enable several.
@@ -114,6 +132,69 @@ When the alarm rings:
 - Type `s` and press Enter to snooze (`snooze_minutes`, up to `max_snoozes` times)
 - It stops by itself after `ring_limit_minutes`
 
+## Phone behavior setup (bedtime reminders and back-to-sleep check)
+
+Your phone tells the laptop what it's doing by sending one word to a **second** private ntfy topic (`[behavior] events_topic`). The laptop reads that topic every 30 seconds. You don't need to subscribe to it in the ntfy app, and no ntfy app is needed for this part.
+
+Words it understands: `app_open`, `app_close`, `unlock`, `charger_on`, `charger_off`, `sleep_focus_on`, `sleep_focus_off`, `awake`, `shampoo`, `no_shampoo`.
+
+Each word is sent by opening this URL (replace the topic):
+
+```
+https://ntfy.sh/YOUR-EVENTS-TOPIC/publish?message=app_open
+```
+
+### iPhone (Shortcuts app, iOS 17 or newer)
+
+Create these in Shortcuts > Automation > New Automation. For each one pick **Run Immediately**, then add a single **Get Contents of URL** action with the URL above and the matching word.
+
+| Trigger | Word |
+|---|---|
+| App > pick the apps you use most at night and in the morning (Instagram, TikTok, YouTube, WhatsApp, Safari...) > Is Opened | `app_open` |
+| Same apps > Is Closed | `app_close` |
+| Charger > Is Connected | `charger_on` |
+| Charger > Is Disconnected | `charger_off` |
+| Focus > Sleep > When Turning On | `sleep_focus_on` |
+| Focus > Sleep > When Turning Off | `sleep_focus_off` |
+
+Also create three normal shortcuts (not automations) with the same action, and add them to your Home Screen or to Back Tap (Settings > Accessibility > Touch > Back Tap):
+
+- **I'm awake:** `awake`
+- **Shampoo:** `shampoo`
+- **No shampoo:** `no_shampoo`
+
+Check that events arrive with `class-alarm events`.
+
+**What iOS does not allow:** third-party apps and Shortcuts cannot see screen unlocks or Screen Time data. App opens, charging and Sleep Focus are the closest signals iOS gives, so choose the apps you actually open in bed.
+
+### Android
+
+Use MacroDroid, Tasker or Automate with an HTTP request action and the same URL. Android can also detect screen unlocks, so add an `unlock` trigger. The ntfy app's **I'm awake** button works on Android too.
+
+### Bedtime reminders (`[sleep]`)
+
+- Bedtime = tomorrow's alarm time minus `sleep_hours` minus `fall_asleep_minutes` (6:45 alarm, 7.5h, 15 min: bed by 11:00 PM).
+- `wind_down_minutes` before bedtime you get a heads up. After a few nights of data, it also tells you when you usually put your phone down and how much sleep that would leave.
+- At bedtime: "Time to sleep".
+- If your phone is still being used after bedtime, you get a nudge every `nag_minutes` (up to `max_nags`).
+- `class-alarm sleep-report` shows the last week of nights and tonight's recommendation.
+- Your sleep pattern is estimated from the longest stretch with no phone activity each night (at least 3 hours, ended by a morning event). It measures when you put the phone down, not true sleep.
+
+### Back-to-sleep check (`[awake_check]`)
+
+1. You turn the alarm off on the laptop.
+2. After `check_after_minutes`, your phone gets "Are you awake?".
+3. You're counted as awake if, within `confirm_window_minutes`, you do any of these:
+   - acknowledge the Pushover alert
+   - tap **I'm awake** on the ntfy notification (Android)
+   - run the I'm awake shortcut
+   - use your phone in a way it reports (opening a tracked app, unplugging the charger)
+4. Otherwise the laptop and phone ring again, up to `max_rerings` times.
+
+Plugging in the charger or turning on Sleep Focus does not count as awake.
+
+On iPhone, use Pushover for this check: its alerts can be acknowledged from the lock screen and the laptop can see that you did.
+
 ## Waking from sleep (important)
 
 A sleeping laptop cannot ring. Pick one:
@@ -124,6 +205,7 @@ A sleeping laptop cannot ring. Pick one:
   - **macOS:** uses `pmset schedule wake`, which needs root. Allow it without a password by running `sudo visudo` and adding `yourusername ALL=(root) NOPASSWD: /usr/bin/pmset`.
   - **Linux:** uses `rtcwake`, which needs root. Add `yourusername ALL=(root) NOPASSWD: /usr/sbin/rtcwake` via `sudo visudo` (check the path with `which rtcwake`).
   - Test with `class-alarm wake-next`.
+- With `[sleep]` on, it also wakes the laptop before your wind-down reminder so the reminder can be sent.
 - Most laptops will not wake from sleep with the lid closed and no external display. Leave the lid open.
 - If the laptop wakes late but before class starts, the alarm still rings immediately.
 
@@ -132,7 +214,14 @@ A sleeping laptop cannot ring. Pick one:
 - **No sound on Linux:** install `pulseaudio-utils` (for `paplay`) or `alsa-utils` (for `aplay`).
 - **Custom sound:** set `sound_file` to a `.wav` file. WAV works on every OS.
 - **Phone alert failed:** the error is printed in the terminal. The laptop keeps ringing regardless.
-- **Wrong wake time:** run `class-alarm plan` and check your CSV times and `lead_minutes`.
+- **Wrong wake time:** run `class-alarm plan` and check your CSV times, `lead_minutes` and shampoo days.
+- **No phone events:** run `class-alarm events`. If nothing shows, open the URL from your phone's browser once to check the topic name, then check the automations are set to Run Immediately.
+
+## Privacy
+
+- Phone events contain only a word (like `app_open`) and a time, not which app or anything you did in it.
+- On the public ntfy.sh server, anyone who knows a topic name can read it, so use long random topic names. For more privacy, run your own ntfy server or use ntfy access tokens (`token` in config).
+- The learned data stays on your laptop in the `data/` folder (git-ignored). Events older than 30 days are deleted.
 
 ## Development
 

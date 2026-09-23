@@ -68,10 +68,47 @@ class PhoneConfig:
 
 
 @dataclass
+class ShampooConfig:
+    days: tuple[int, ...] = ()  # weekdays, Mon=0
+    lead_minutes: int = 75
+
+
+@dataclass
+class BehaviorConfig:
+    enabled: bool = False
+    server: str = "https://ntfy.sh"
+    events_topic: str = ""
+    token: str = ""
+
+
+@dataclass
+class SleepConfig:
+    enabled: bool = False
+    sleep_hours: float = 7.5
+    fall_asleep_minutes: int = 15
+    wind_down_minutes: int = 30
+    nag_minutes: int = 30
+    max_nags: int = 4
+
+
+@dataclass
+class AwakeCheckConfig:
+    enabled: bool = False
+    check_after_minutes: int = 5
+    confirm_window_minutes: int = 5
+    max_rerings: int = 2
+
+
+@dataclass
 class Config:
     timetable: TimetableConfig
     alarm: AlarmConfig
     phone: PhoneConfig
+    shampoo: ShampooConfig = field(default_factory=ShampooConfig)
+    behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
+    sleep: SleepConfig = field(default_factory=SleepConfig)
+    awake_check: AwakeCheckConfig = field(default_factory=AwakeCheckConfig)
+    data_dir: Path = Path("data")
 
 
 def _date(value: object, where: str) -> date:
@@ -90,6 +127,13 @@ def _int(section: dict, key: str, default: int, minimum: int, where: str) -> int
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ConfigError(f"{where}.{key}: expected a whole number >= {minimum}, got {value!r}")
     return value
+
+
+def _float(section: dict, key: str, default: float, low: float, high: float, where: str) -> float:
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+        raise ConfigError(f"{where}.{key}: expected a number from {low} to {high}, got {value!r}")
+    return float(value)
 
 
 def _bool(section: dict, key: str, default: bool, where: str) -> bool:
@@ -224,4 +268,68 @@ def load_config(path: Path) -> Config:
         twilio=twilio,
     )
 
-    return Config(timetable=timetable, alarm=alarm, phone=phone)
+    from class_alarm.timetable import TimetableError, parse_days
+
+    sh = raw.get("shampoo", {})
+    days_raw = sh.get("days", [])
+    if not isinstance(days_raw, list) or not all(isinstance(d, str) for d in days_raw):
+        raise ConfigError('shampoo.days must be a list like ["Mon", "Thu"]')
+    try:
+        shampoo_days = tuple(sorted({d for text in days_raw for d in parse_days(text)}))
+    except TimetableError as exc:
+        raise ConfigError(f"shampoo.days: {exc}") from None
+    shampoo = ShampooConfig(days=shampoo_days, lead_minutes=_int(sh, "lead_minutes", 75, 0, "shampoo"))
+
+    be = raw.get("behavior", {})
+    behavior = BehaviorConfig(
+        enabled=_bool(be, "enabled", False, "behavior"),
+        server=_str(be, "server", "https://ntfy.sh", "behavior").rstrip("/"),
+        events_topic=_str(be, "events_topic", "", "behavior"),
+        token=_str(be, "token", "", "behavior"),
+    )
+    _require(behavior.enabled, {"events_topic": behavior.events_topic}, "behavior")
+    if behavior.enabled and ntfy.enabled and behavior.events_topic == ntfy.topic:
+        raise ConfigError("behavior.events_topic must be different from phone.ntfy.topic")
+
+    sl = raw.get("sleep", {})
+    sleep = SleepConfig(
+        enabled=_bool(sl, "enabled", False, "sleep"),
+        sleep_hours=_float(sl, "sleep_hours", 7.5, 3, 12, "sleep"),
+        fall_asleep_minutes=_int(sl, "fall_asleep_minutes", 15, 0, "sleep"),
+        wind_down_minutes=_int(sl, "wind_down_minutes", 30, 0, "sleep"),
+        nag_minutes=_int(sl, "nag_minutes", 30, 10, "sleep"),
+        max_nags=_int(sl, "max_nags", 4, 0, "sleep"),
+    )
+
+    aw = raw.get("awake_check", {})
+    awake_check = AwakeCheckConfig(
+        enabled=_bool(aw, "enabled", False, "awake_check"),
+        check_after_minutes=_int(aw, "check_after_minutes", 5, 0, "awake_check"),
+        confirm_window_minutes=_int(aw, "confirm_window_minutes", 5, 1, "awake_check"),
+        max_rerings=_int(aw, "max_rerings", 2, 0, "awake_check"),
+    )
+
+    can_message = ntfy.enabled or pushover.enabled
+    if sleep.enabled and not can_message:
+        raise ConfigError("sleep reminders need phone.ntfy or phone.pushover enabled")
+    if awake_check.enabled and not (pushover.enabled or (ntfy.enabled and behavior.enabled)):
+        raise ConfigError(
+            "awake_check needs a way for you to answer: enable phone.pushover, "
+            "or enable both phone.ntfy and behavior"
+        )
+
+    st = raw.get("storage", {})
+    data_dir = Path(_str(st, "dir", "data", "storage") or "data").expanduser()
+    if not data_dir.is_absolute():
+        data_dir = base / data_dir
+
+    return Config(
+        timetable=timetable,
+        alarm=alarm,
+        phone=phone,
+        shampoo=shampoo,
+        behavior=behavior,
+        sleep=sleep,
+        awake_check=awake_check,
+        data_dir=data_dir,
+    )

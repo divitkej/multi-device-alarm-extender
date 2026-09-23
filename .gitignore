@@ -1,4 +1,5 @@
 config.toml
+data/
 timetable.csv
 *.ics
 __pycache__/
