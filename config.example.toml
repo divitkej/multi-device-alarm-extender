@@ -54,6 +54,15 @@ user_key = ""
 sound = "persistent"
 retry_seconds = 30
 
+# Free. Sets your phone's OWN alarm clock every night (rings through silent mode and Do Not Disturb).
+# The laptop publishes the next wake time (within 24h) to this topic; a phone shortcut reads it and
+# creates the alarm. See README "Phone's own alarm". Use a different topic from the others.
+[phone.native_alarm]
+enabled = false
+server = "https://ntfy.sh"
+topic = "replace-with-a-third-long-random-topic"
+token = ""
+
 # Real phone call that reads your wake-up message. Costs a few cents per call.
 [phone.twilio]
 enabled = false

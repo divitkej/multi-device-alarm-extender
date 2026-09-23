@@ -17,6 +17,7 @@ from xml.sax.saxutils import escape
 
 from class_alarm.config import (
     BehaviorConfig,
+    NativeAlarmConfig,
     NtfyConfig,
     PhoneConfig,
     PushoverConfig,
@@ -193,6 +194,18 @@ class TwilioCallNotifier(Notifier):
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
+
+
+def publish_native_alarm(cfg: NativeAlarmConfig, text: str, sender=send) -> bool:
+    """Posts the wake time ("06:45" or "none") for the phone shortcut to read. True on success."""
+    headers = {"Authorization": f"Bearer {cfg.token}"} if cfg.token else {}
+    url = f"{cfg.server}/{urllib.parse.quote(cfg.topic, safe='')}"
+    try:
+        sender(Request(url=url, data=text.encode("utf-8"), headers=headers))
+    except Exception as exc:
+        log.warning("native alarm: could not publish wake time: %s", _describe_error(exc))
+        return False
+    return True
 
 
 def build_notifiers(cfg: PhoneConfig, sender=send) -> list[Notifier]:

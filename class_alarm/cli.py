@@ -22,7 +22,7 @@ from class_alarm.behavior import (
     sleep_period,
 )
 from class_alarm.config import Config, ConfigError, load_config
-from class_alarm.notifiers import Messenger, build_notifiers
+from class_alarm.notifiers import Messenger, build_notifiers, publish_native_alarm
 from class_alarm.planner import Alarm, lead_function, upcoming_alarms
 from class_alarm.ringer import LineReader, ring
 from class_alarm.sound import AlarmSound
@@ -35,6 +35,20 @@ log = logging.getLogger("class_alarm")
 WAKE_EARLY = timedelta(minutes=2)  # wake the machine a little before the alarm so it is ready
 POLL_SECONDS = 15  # short sleeps so a laptop that just woke up notices the time quickly
 EVENT_POLL_SECONDS = 30
+NATIVE_ALARM_REPUBLISH = timedelta(hours=1)  # ntfy.sh keeps messages 12h; keep a fresh copy there
+NATIVE_ALARM_HORIZON = timedelta(hours=24)
+
+
+def native_alarm_text(alarms: list[Alarm], now: datetime) -> str:
+    """The phone's alarm for the next 24 hours as HH:MM, or "none".
+
+    Only the time is sent (the phone alarm rings at the next occurrence of that time), so an
+    alarm further than 24 hours away must not be sent or it would ring a day early.
+    """
+    for a in alarms:
+        if now < a.wake_at <= now + NATIVE_ALARM_HORIZON:
+            return f"{a.wake_at:%H:%M}"
+    return "none"
 
 
 def _describe(alarm: Alarm) -> str:
@@ -172,6 +186,7 @@ def cmd_run(config_path: Path) -> int:
     announced: str | None = None
     wake_scheduled_for: datetime | None = None
     last_event_poll = 0.0
+    native_published: tuple[str, datetime] | None = None
     print("Class Alarm is running. Keep this window open and the laptop plugged in. Ctrl+C to quit.")
 
     while True:
@@ -192,6 +207,15 @@ def cmd_run(config_path: Path) -> int:
             log.error("%s (still using the last good timetable)", exc)
 
         pending = [a for a in alarms if a.key not in fired and a.first_class.start > now]
+
+        native = app.cfg.phone.native_alarm
+        if native.enabled:
+            text = native_alarm_text(pending, now)
+            stale = native_published is None or now - native_published[1] >= NATIVE_ALARM_REPUBLISH
+            if (stale or native_published[0] != text) and publish_native_alarm(native, text):
+                native_published = (text, now)
+                log.info("phone alarm time published: %s", text)
+
         if not pending:
             if announced != "none":
                 print("No upcoming classes in the next week. Waiting for timetable changes.")
@@ -232,13 +256,19 @@ def cmd_test(app: App, phone: bool) -> int:
 
 def cmd_test_phone(app: App) -> int:
     notifiers = build_notifiers(app.cfg.phone)
-    if not notifiers:
+    if not notifiers and not app.cfg.phone.native_alarm.enabled:
         print("No phone channel is enabled. Turn one on under [phone.*] in config.toml.")
         return 1
     for n in notifiers:
         print(f"Sending test alert via {n.name}...")
         n.start("Test alert from Class Alarm. If you see this, your phone is set up.")
         n.stop()
+    native = app.cfg.phone.native_alarm
+    if native.enabled:
+        now = datetime.now().astimezone()
+        text = native_alarm_text(app.alarms(now), now)
+        if publish_native_alarm(native, text):
+            print(f"Published phone alarm time {text!r}. Run your Set Class Alarm shortcut to check it.")
     print("Done. Check your phone. Any failures are logged above.")
     return 0
 

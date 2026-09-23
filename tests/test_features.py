@@ -370,3 +370,35 @@ def test_shampoo_shortcut_from_phone_moves_next_alarm(tmp_path, monkeypatch):
     )[0]
     assert monday.wake_at == local(2026, 9, 21, 6, 15)
     assert b"6:15 AM" in sent.requests[0].data
+
+
+# --- phone's own alarm sync --------------------------------------------------
+
+def test_native_alarm_text_only_within_24_hours():
+    alarms = upcoming_alarms(EXAMPLE, local(2026, 9, 21, 22, 0))  # Monday night
+    assert cli.native_alarm_text(alarms, local(2026, 9, 21, 22, 0)) == "08:15"  # Tue 9:00 class
+    # Friday night: next class is Monday, more than 24h away, so the phone must not get 06:45
+    fri = local(2026, 9, 25, 22, 0)
+    assert cli.native_alarm_text(upcoming_alarms(EXAMPLE, fri), fri) == "none"
+    # Sunday night: Monday 6:45 is within 24h
+    sun = local(2026, 9, 27, 21, 0)
+    assert cli.native_alarm_text(upcoming_alarms(EXAMPLE, sun), sun) == "06:45"
+
+
+def test_native_alarm_skips_alarm_already_due():
+    now = local(2026, 9, 21, 7, 0)  # Monday alarm 6:45 already due, class at 7:30
+    assert cli.native_alarm_text(upcoming_alarms(EXAMPLE, now), now) == "none"  # Tue 8:15 is >24h
+
+
+def test_publish_native_alarm():
+    from class_alarm.config import NativeAlarmConfig
+    from class_alarm.notifiers import publish_native_alarm
+
+    rec = Recorder()
+    assert publish_native_alarm(NativeAlarmConfig(enabled=True, topic="wake time"), "06:45", sender=rec)
+    assert rec.requests[0].url == "https://ntfy.sh/wake%20time" and rec.requests[0].data == b"06:45"
+
+    def boom(req):
+        raise OSError("offline")
+
+    assert not publish_native_alarm(NativeAlarmConfig(enabled=True, topic="t"), "06:45", sender=boom)

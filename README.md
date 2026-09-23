@@ -85,9 +85,32 @@ Pick at least one. You can enable several.
 
 | Channel | Cost | Best for | How loud |
 |---|---|---|---|
+| Phone's own alarm | Free | Everyone, especially iPhone | The real Clock alarm, rings on silent and through Do Not Disturb |
 | ntfy | Free | Android | Max priority push, re-sent every `repeat_seconds` |
 | Pushover | One time app purchase | iPhone | Emergency alert that repeats until you acknowledge it, can bypass silent mode |
 | Twilio | A few cents per call | Heavy sleepers | Real phone call reading your message aloud, repeated every few minutes |
+
+**Phone's own alarm (free, recommended, works in the UAE)**
+
+Your phone's built-in Clock alarm is the loudest, most reliable thing it has: it rings on silent, through Do Not Disturb and with the phone locked. With `[phone.native_alarm]` on, the laptop publishes tomorrow's wake time (for example `06:45`, or `none` when there's no class in the next 24 hours) and a phone shortcut turns it into a real alarm every night. It keeps working even if the laptop is asleep in the morning.
+
+iPhone setup (Shortcuts app):
+
+1. New shortcut named **Set Class Alarm** with these actions:
+   1. **Get Contents of URL:** `https://ntfy.sh/YOUR-NATIVE-ALARM-TOPIC/raw?poll=1`
+   2. **Split Text** by New Lines
+   3. **Get Item from List:** Last Item
+   4. **If** Item is `none`: **Stop This Shortcut**
+   5. **Get Dates from Input** (the Item)
+   6. **Create Alarm** at that date, label `Class`
+2. Automation > New Automation > **Time of Day** (for example 10:00 PM, daily) > **Run Immediately** > run **Set Class Alarm**. Add a second automation on **Charger > Is Connected** if you often go to bed earlier or later.
+3. Test with `class-alarm test-phone`, then run the shortcut and check the Clock app.
+
+Notes:
+
+- The laptop re-publishes every hour and whenever the time changes (shampoo day, timetable edit). ntfy.sh keeps messages for 12 hours, so the laptop must have been awake at some point in the 12 hours before the shortcut runs.
+- Each night adds a new one-time alarm. iOS turns old ones off after they ring, but they stay in the list, so delete them now and then.
+- Android: MacroDroid or Tasker can read the same URL and set an alarm.
 
 **ntfy (free)**
 

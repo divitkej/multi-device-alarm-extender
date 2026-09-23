@@ -60,11 +60,22 @@ class TwilioConfig:
 
 
 @dataclass
+class NativeAlarmConfig:
+    """Publishes tomorrow's wake time so a phone shortcut can set the phone's own alarm."""
+
+    enabled: bool = False
+    server: str = "https://ntfy.sh"
+    topic: str = ""
+    token: str = ""
+
+
+@dataclass
 class PhoneConfig:
     repeat_seconds: int = 60
     ntfy: NtfyConfig = field(default_factory=NtfyConfig)
     pushover: PushoverConfig = field(default_factory=PushoverConfig)
     twilio: TwilioConfig = field(default_factory=TwilioConfig)
+    native_alarm: NativeAlarmConfig = field(default_factory=NativeAlarmConfig)
 
 
 @dataclass
@@ -261,11 +272,23 @@ def load_config(path: Path) -> Config:
         "phone.twilio",
     )
 
+    na = ph.get("native_alarm", {})
+    native_alarm = NativeAlarmConfig(
+        enabled=_bool(na, "enabled", False, "phone.native_alarm"),
+        server=_str(na, "server", "https://ntfy.sh", "phone.native_alarm").rstrip("/"),
+        topic=_str(na, "topic", "", "phone.native_alarm"),
+        token=_str(na, "token", "", "phone.native_alarm"),
+    )
+    _require(native_alarm.enabled, {"topic": native_alarm.topic}, "phone.native_alarm")
+    if native_alarm.enabled and ntfy.enabled and native_alarm.topic == ntfy.topic:
+        raise ConfigError("phone.native_alarm.topic must be different from phone.ntfy.topic")
+
     phone = PhoneConfig(
         repeat_seconds=_int(ph, "repeat_seconds", 60, 15, "phone"),
         ntfy=ntfy,
         pushover=pushover,
         twilio=twilio,
+        native_alarm=native_alarm,
     )
 
     from class_alarm.timetable import TimetableError, parse_days
@@ -290,6 +313,8 @@ def load_config(path: Path) -> Config:
     _require(behavior.enabled, {"events_topic": behavior.events_topic}, "behavior")
     if behavior.enabled and ntfy.enabled and behavior.events_topic == ntfy.topic:
         raise ConfigError("behavior.events_topic must be different from phone.ntfy.topic")
+    if behavior.enabled and native_alarm.enabled and behavior.events_topic == native_alarm.topic:
+        raise ConfigError("behavior.events_topic must be different from phone.native_alarm.topic")
 
     sl = raw.get("sleep", {})
     sleep = SleepConfig(
